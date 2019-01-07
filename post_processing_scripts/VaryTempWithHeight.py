@@ -18,12 +18,21 @@ class VaryTempWithHeight(Script):
             'metadata': {},
             'version': 2,
             'settings': {
-                'start_temperature': {
+                'feet_height': {
+                    'label': 'Feet height',
+                    'description': (
+					'Start Increment after feet.'
+					),
+                    'unit': 'mm',
+                    'type': 'float',
+                    'default_value': 0
+                },
+				'start_temperature': {
                     'label': 'Start Temperature',
                     'description': 'Initial nozzle temperature',
                     'unit': '°C',
                     'type': 'int',
-                    'default_value': 200
+                    'default_value': 225
                 },
                 'height_increment': {
                     'label': 'Height Increment',
@@ -36,14 +45,14 @@ class VaryTempWithHeight(Script):
                     'default_value': 10
                 },
                 'temperature_increment': {
-                    'label': 'Temperature Increment',
+                    'label': 'Temperature Decrement',
                     'description': (
                         'Decrease temperature by this much with each '
                         'height increment'
                     ),
                     'unit': '°C',
                     'type': 'int',
-                    'default_value': 4
+                    'default_value': 5
                 }
             }
         }
@@ -57,19 +66,19 @@ class VaryTempWithHeight(Script):
         start_temp = self.getSettingValueByKey('start_temperature')
         height_inc = self.getSettingValueByKey('height_increment')
         temp_inc = self.getSettingValueByKey('temperature_increment')
+        feet_height = self.getSettingValueByKey('feet_height')
 
         # Set our command regex
         cmd_re = re.compile((
-            r'G[0-9]+\.?[0-9]* X[0-9]+\.?[0-9]* '
+            r'G[0-9]+\.?[0-9]* (?:F[0-9]+\.?[0-9]* )?X[0-9]+\.?[0-9]* '
             r'Y[0-9]+\.?[0-9]* Z([0-9]+\.?[0-9]*)'
         ))
 
         # Set initial state
         output = []
-        current_temp = start_temp
+        new_temp = start_temp
         started = False
         z = 0.0
-        new_temp = 0
 
         for layer in data:
             output_line = ''
@@ -89,23 +98,24 @@ class VaryTempWithHeight(Script):
 
                 # If we've found our line
                 if match is not None:
+                    output_line += ';TYPE:CUSTOM\n'
                     # Grab the z value
                     new_z = float(match.groups()[0])
 
                     # If our z value has changed
                     if new_z != z:
-                        z = new_z
-
-                        # Determine new temperature
-                        new_temp = int(z / height_inc) * temp_inc
-                        new_temp = start_temp - new_temp
-
-                        # If we hit a spot where we need to change the
-                        # temperature, then write the gcode command
-                        if new_temp < current_temp:
-                            current_temp = new_temp
-                            output_line += ';TYPE:CUSTOM\n'
-                            output_line += 'M104 S%d\n' % new_temp
+                        z = new_z - feet_height
+                        if z == 0:
+                            output_line += ';TEMP CHANGE\n'
+                            output_line += 'M104 S%d\n' % start_temp
+                        if z > 0:
+                            # Determine new temperature
+                            if z % height_inc == 0:
+							    # If we hit a spot where we need to change the
+								# temperature, then write the gcode command
+                                new_temp = new_temp - temp_inc
+                                output_line += ';TEMP CHANGE\n'
+                                output_line += 'M104 S%d\n' % new_temp
                 # output the current line
                 output_line += '%s\n' % line
             # Append the current possibly modified layer to the output
